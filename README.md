@@ -1,436 +1,417 @@
-# Order Service - RabbitMQ Microservices Demo
+# Microservices with AWS SNS/SQS 🚀
 
-## 📋 Overview
+## Overview
 
-This project demonstrates a **microservices architecture** using **Spring Boot 4.0.3** and **RabbitMQ** for asynchronous communication. It simulates an order processing system where an order service publishes messages to multiple consumer services.
+A microservices system using **AWS SNS/SQS** for asynchronous communication between services.
+
+The system contains **3 services**:
+
+* **Order Service** (`8080`) – Publisher
+* **Stock Service** (`8081`) – Consumer
+* **Email Service** (`8082`) – Consumer
 
 ---
 
-# 🏗️ Architecture
+# Architecture 📋
 
 ```
-┌─────────────────┐     ┌──────────────┐     ┌──────────────────┐
-│                 │     │              │     │                  │
-│  Order Service  │────▶│   RabbitMQ   │────▶│  Email Service   │
-│    (Port 8080)  │     │  (Port 5672) │     │    (Port 8082)   │
-│                 │     │  Management  │     │                  │
-│                 │     │  (Port 15672)│────▶├──────────────────┤
-└─────────────────┘     └──────────────┘     │                  │
-                                              │  Stock Service   │
-                                              │    (Port 8081)   │
-                                              │                  │
-                                              └──────────────────┘
+[Order Service :8080]
+       │
+       │ Publish to SNS
+       ▼
+[SNS Topic: order-events-topic]
+       │
+   ┌───┴───────────────┐
+   │                   │
+   ▼                   ▼
+[stock-queue]     [email-queue]
+   │                   │
+   ▼                   ▼
+[Stock Service]   [Email Service]
+   :8081              :8082
 ```
 
 ---
 
-## Components
+# Flow
 
-| Service | Port | Responsibility |
-|------|------|------|
-| **Order Service** | `8080` | Receives order requests and publishes to RabbitMQ |
-| **Stock Service** | `8081` | Consumes orders from stock queue and processes inventory |
-| **Email Service** | `8082` | Consumes orders from email queue and sends notifications |
-| **RabbitMQ** | `5672` (AMQP) / `15672` (Management) | Message broker |
-
----
-
-# 🚀 Technologies
-
-- Java 17
-- Spring Boot 4.0.3
-- Spring AMQP / RabbitMQ
-- Maven
-- Docker
+1. **Order Service** receives request → publishes message to **SNS Topic**
+2. **SNS Topic** broadcasts message to all subscribed queues
+3. **Stock Queue** receives message → Stock Service processes it
+4. **Email Queue** receives message → Email Service sends email
+5. Messages are automatically deleted after successful processing
 
 ---
 
-# ⚙️ Prerequisites
+# Technologies 🛠️
 
-- Java 17 or higher
-- Maven 3.8+
-- Docker (for RabbitMQ)
-- curl or Postman (for testing)
+* Java 17
+* Spring Boot 3.3.0
+* Spring Cloud AWS 3.3.0
+* AWS SDK v2
+* LocalStack (local AWS emulator)
+* Maven
+* Lombok
 
 ---
 
-# 🐳 Running RabbitMQ with Docker
+# Prerequisites 📋
+
+Install required tools:
 
 ```bash
-docker run -it --rm --name rabbitmq \
-  -p 5672:5672 \
-  -p 15672:15672 \
-  rabbitmq:4-management
+# Java
+java -version
+
+# Maven
+mvn -version
+
+# Docker
+docker --version
+
+# Docker Compose
+docker-compose --version
+
+# Python
+python --version
+
+# AWS CLI
+pip install awscli
 ```
-
-### RabbitMQ Credentials
-
-- **Username:** `guest`
-- **Password:** `guest`
-- **Management Console:** http://localhost:15672
 
 ---
 
-# 🔧 Configuration
+# Setup & Installation ⚙️
 
-## Order Service (application.properties)
+## 1. Clone Project
+
+```bash
+git clone <your-repo-url>
+cd springboot-microservices-mq
+```
+
+---
+
+# 2. Start LocalStack
+
+```bash
+docker-compose up -d
+```
+
+Check health:
+
+```bash
+curl http://localhost:4566/_localstack/health
+```
+
+---
+
+# 3. Create SNS/SQS Resources
+
+```bash
+chmod +x scripts/setup-resources.sh
+./scripts/setup-resources.sh
+```
+
+Verify resources:
+
+```bash
+python -m awscli --endpoint-url=http://localhost:4566 sns list-topics
+python -m awscli --endpoint-url=http://localhost:4566 sqs list-queues
+python -m awscli --endpoint-url=http://localhost:4566 sns list-subscriptions
+```
+
+---
+
+# Configuration
+
+## Order Service
+
+`order-service/src/main/resources/application.properties`
 
 ```properties
 spring.application.name=order-service
 server.port=8080
 
-spring.rabbitmq.host=localhost
-spring.rabbitmq.port=5672
-spring.rabbitmq.username=guest
-spring.rabbitmq.password=guest
+cloud.aws.region.static=us-east-1
+cloud.aws.credentials.access-key=test
+cloud.aws.credentials.secret-key=test
+cloud.aws.sns.endpoint=http://localhost:4566
 
-rabbitmq.exchange.name=order_exchange
-rabbitmq.queue.stock.name=stock
-rabbitmq.binding.stock.routing.key=stock_routing_key
-rabbitmq.queue.email.name=email
-rabbitmq.binding.email.routing.key=email_routing_key
+sns.topic.name=order-events-topic
 ```
 
 ---
 
-## Stock Service (application.properties)
+## Stock Service
+
+`stock-service/src/main/resources/application.properties`
 
 ```properties
 spring.application.name=stock-service
 server.port=8081
 
-spring.rabbitmq.host=localhost
-spring.rabbitmq.port=5672
-spring.rabbitmq.username=guest
-spring.rabbitmq.password=guest
+cloud.aws.region.static=us-east-1
+cloud.aws.credentials.access-key=test
+cloud.aws.credentials.secret-key=test
+cloud.aws.sqs.endpoint=http://localhost:4566
 
-rabbitmq.exchange.name=order_exchange
-rabbitmq.queue.stock.name=stock
-rabbitmq.binding.stock.routing.key=stock_routing_key
+sqs.queue.stock=stock-queue
 ```
 
 ---
 
-## Email Service (application.properties)
+## Email Service
+
+`email-service/src/main/resources/application.properties`
 
 ```properties
 spring.application.name=email-service
 server.port=8082
 
-spring.rabbitmq.host=localhost
-spring.rabbitmq.port=5672
-spring.rabbitmq.username=guest
-spring.rabbitmq.password=guest
+cloud.aws.region.static=us-east-1
+cloud.aws.credentials.access-key=test
+cloud.aws.credentials.secret-key=test
+cloud.aws.sqs.endpoint=http://localhost:4566
 
-rabbitmq.exchange.name=order_exchange
-rabbitmq.queue.email.name=email
-rabbitmq.binding.email.routing.key=email_routing_key
+sqs.queue.email=email-queue
 ```
 
 ---
 
-# 📦 Project Structure
+# Build & Run 🚀
 
+### Terminal 1
+
+```bash
+cd stock-service
+mvn clean spring-boot:run
 ```
-order-service/
-├── src/main/java/com/trinhntm/orderservice/
-│
-├── OrderServiceApplication.java
-│
-├── config/
-│   └── RabbitMQConfig.java
-│
-├── controller/
-│   └── OrderController.java
-│
-├── dto/
-│   ├── Order.java
-│   └── OrderEvent.java
-│
-├── publisher/
-│   └── OrderProducer.java
-│
-└── src/main/resources/
-    └── application.properties
+
+### Terminal 2
+
+```bash
+cd email-service
+mvn clean spring-boot:run
+```
+
+### Terminal 3
+
+```bash
+cd order-service
+mvn clean spring-boot:run
 ```
 
 ---
 
-# 🎯 How It Works
+# API Endpoints 🌐
 
-1. Client sends a **POST request** to:
-
-```
-http://localhost:8080/api/v1/orders
-```
-
-2. **Order Service**
-- Creates an `OrderEvent`
-- Status = `PENDING`
-
-3. **Order Service publishes to RabbitMQ**
-
-Exchange:
-
-```
-order_exchange
-```
-
-Routing keys:
-
-| Routing Key | Queue |
-|------|------|
-| `stock_routing_key` | `stock` |
-| `email_routing_key` | `email` |
-
-4. **Stock Service**
-- Consumes `stock` queue
-- Processes inventory
-
-5. **Email Service**
-- Consumes `email` queue
-- Sends notification email
-
----
-
-# 📝 API Endpoints
-
-## Place an Order
+## Create Order
 
 ```
 POST http://localhost:8080/api/v1/orders
 ```
 
-Body:
+### Request Body
 
 ```json
 {
-  "name": "Sample Order",
-  "quantity": 10,
-  "price": 99.99
+  "name": "Product Name",
+  "quantity": 5,
+  "price": 750
 }
 ```
 
-Response:
+### Response
 
 ```
-Order sent to RabbitMQ ...
-```
-
----
-
-# Check RabbitMQ Console
-
-URL:
-
-```
-http://localhost:15672
-```
-
-Login:
-
-```
-guest / guest
-```
-
-Queues:
-
-```
-stock
-email
+Order published to SNS successfully!
+Order ID: uuid-1234-5678
 ```
 
 ---
 
-# 🚀 Running the Application
+# Testing 🧪
 
-## 1 Start RabbitMQ
-
-```bash
-docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
-```
-
----
-
-## 2 Start Order Service
-
-```bash
-cd order-service
-mvn spring-boot:run
-```
-
----
-
-## 3 Start Stock Service
-
-```bash
-cd ../stock-service
-mvn spring-boot:run
-```
-
----
-
-## 4 Start Email Service
-
-```bash
-cd ../email-service
-mvn spring-boot:run
-```
-
----
-
-## 5 Test the Flow
+## Send Test Order
 
 ```bash
 curl --location 'http://localhost:8080/api/v1/orders' \
 --header 'Content-Type: application/json' \
 --data '{
-    "name": "Test Order",
-    "quantity": 5,
-    "price": 150.00
+"name": "Test Product",
+"quantity": 3,
+"price": 999
 }'
 ```
 
 ---
 
-# 📊 Monitoring
+# Monitor Logs
 
-## RabbitMQ Management Console
-
-You can monitor:
-
-- Queues
-- Connections
-- Exchanges
-- Message rates
-
-Console:
+## Stock Service
 
 ```
-http://localhost:15672
+========== STOCK SERVICE RECEIVED ==========
+Order ID: uuid-1234
+Stock updated successfully
+```
+
+## Email Service
+
+```
+========== EMAIL SERVICE RECEIVED ==========
+Order ID: uuid-1234
+Email sent successfully
 ```
 
 ---
 
-## Service Logs
+# Check Queue Status
 
-Each service logs activity:
-
-| Service | Logs |
-|------|------|
-| Order Service | Order received + message published |
-| Stock Service | Inventory processing |
-| Email Service | Email sending |
-
----
-
-# 🔍 Troubleshooting
-
-## Connection Refused
-
-Check RabbitMQ container:
+Check messages:
 
 ```bash
-docker ps | grep rabbitmq
+python -m awscli --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+--queue-url http://sqs.us-east-1.localhost:4566/000000000000/stock-queue \
+--attribute-names ApproximateNumberOfMessages
 ```
 
----
-
-## Queue Not Found
-
-Check RabbitMQ console:
-
-```
-http://localhost:15672
-```
-
-Queues should be auto-created by Spring Boot.
-
----
-
-## API Hanging
-
-Check:
-
-- Stock service running
-- Email service running
-- RabbitMQ running
-- Service logs
-
----
-
-# Useful Commands
-
-### Check RabbitMQ Status
+Receive messages:
 
 ```bash
-docker exec rabbitmq rabbitmqctl status
+python -m awscli --endpoint-url=http://localhost:4566 sqs receive-message \
+--queue-url http://sqs.us-east-1.localhost:4566/000000000000/stock-queue \
+--max-number-of-messages 5
 ```
 
-### List Queues
+---
+
+# Troubleshooting 🔧
+
+## Subscriptions Missing
 
 ```bash
-docker exec rabbitmq rabbitmqctl list_queues
+python -m awscli --endpoint-url=http://localhost:4566 sns list-subscriptions
 ```
 
-### View Logs
+Create subscription again:
 
 ```bash
-docker logs rabbitmq
+python -m awscli --endpoint-url=http://localhost:4566 sns subscribe \
+--topic-arn arn:aws:sns:us-east-1:000000000000:order-events-topic \
+--protocol sqs \
+--notification-endpoint arn:aws:sqs:us-east-1:000000000000:stock-queue
 ```
 
 ---
 
-# 📚 Dependencies
+# LocalStack Issues
 
-```xml
-<dependencies>
+Restart:
 
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-amqp</artifactId>
-</dependency>
+```bash
+docker-compose restart
+```
 
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-</dependency>
+View logs:
 
-<dependency>
-    <groupId>org.projectlombok</groupId>
-    <artifactId>lombok</artifactId>
-    <optional>true</optional>
-</dependency>
-
-</dependencies>
+```bash
+docker logs localstack -f
 ```
 
 ---
 
-# 🧪 Testing the Flow
+# Project Structure 📁
 
-1. Send order
-2. Order service publishes message
-3. RabbitMQ routes message to queues
-4. Stock service processes inventory
-5. Email service sends notification
+```
+springboot-microservices-mq/
+│
+├── order-service
+│   ├── controller
+│   ├── publisher
+│   ├── dto
+│   └── pom.xml
+│
+├── stock-service
+│   ├── consumer
+│   ├── dto
+│   └── pom.xml
+│
+├── email-service
+│   ├── consumer
+│   ├── dto
+│   └── pom.xml
+│
+├── scripts
+│   ├── setup-resources.sh
+│
+├── docker-compose.yml
+└── README.md
+```
 
 ---
 
-# 📈 Key Features
+# Key Features ✨
 
-- Asynchronous Communication via RabbitMQ
-- Decoupled Microservices
-- Scalable Consumers
-- Fault Tolerant Messaging
-- RabbitMQ Monitoring Dashboard
-
----
-
-# 📄 License
-
-This project is for **educational purposes** demonstrating **Spring Boot + RabbitMQ microservices communication**.
+* Asynchronous communication
+* Decoupled microservices
+* Parallel message processing
+* Fault tolerance with message queues
+* Scalable architecture
+* Local development using LocalStack
 
 ---
 
-🚀 Happy Coding
+# Production Improvements 🚀
+
+1. Replace LocalStack with real AWS
+2. Add Dead Letter Queue (DLQ)
+3. Add CloudWatch monitoring
+4. Add database per service
+5. Add API Gateway
+6. Dockerize each service
+
+Example DLQ:
+
+```bash
+aws sqs create-queue --queue-name stock-dlq
+aws sqs create-queue --queue-name email-dlq
+```
+
+---
+
+# Author ✍️
+
+**Trinh Nguyen**
+
+---
+
+# Quick Commands
+
+Start environment:
+
+```bash
+docker-compose up -d
+./scripts/setup-resources.sh
+```
+
+Test flow:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/orders \
+-H "Content-Type: application/json" \
+-d '{"name":"Test","quantity":1,"price":100}'
+```
+
+Check queue:
+
+```bash
+python -m awscli --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+--queue-url http://sqs.us-east-1.localhost:4566/000000000000/stock-queue \
+--attribute-names ApproximateNumberOfMessages
+```
+
+---
+
+Happy Coding 🚀

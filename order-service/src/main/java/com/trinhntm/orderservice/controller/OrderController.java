@@ -2,7 +2,7 @@ package com.trinhntm.orderservice.controller;
 
 import com.trinhntm.orderservice.dto.Order;
 import com.trinhntm.orderservice.dto.OrderEvent;
-import com.trinhntm.orderservice.publisher.OrderProducer;
+import com.trinhntm.orderservice.publisher.OrderEventPublisher;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,9 +13,10 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 public class OrderController {
-    private final OrderProducer orderProducer;
-    public OrderController(OrderProducer orderProducer) {
-        this.orderProducer = orderProducer;
+    private final OrderEventPublisher orderEventPublisher;
+
+    public  OrderController(OrderEventPublisher orderEventPublisher) {
+        this.orderEventPublisher = orderEventPublisher;
     }
 
     @PostMapping("/orders")
@@ -26,8 +27,8 @@ public class OrderController {
        orderEvent.setMessage("Order is in pending status");
        orderEvent.setOrder(order);
 
-       orderProducer.sendMessage(orderEvent);
+       orderEventPublisher.publishOrderEvent(orderEvent);
 
-       return "Order sent to RabbitMQ ...";
+        return "Order published to SNS successfully! Order ID: " + order.getOrderId();
     }
 }
